@@ -60,4 +60,3 @@
 - [cassandra_migration_design](./task10-cassandra_migration/cassandra_migration_design.md)
 
 # Объединенное 7-10 [consolidated_architecture_7_10](./architecture_tasks_7_10_ru.md)
-
