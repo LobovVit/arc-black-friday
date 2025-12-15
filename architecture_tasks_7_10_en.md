@@ -334,55 +334,56 @@ MongoClient(
 
 ---
 
-# 5. Task 10 — Cassandra Migration Architecture
+# 5. Task 10 — Cassandra Migration: Correct Scope and Boundaries
 
-## 5.1 What to Migrate & Why
+## 5.1 Key Architectural Position
 
-| Entity | Migrate? | Reason |
-|--------|----------|--------|
-| cart data | YES | high write load, TTL, low consistency need |
-| sessions | YES | massive throughput |
-| order history | YES | append-only, high volume |
-| product stock | YES (optional) | frequent writes |
-| payments | NO | requires strict consistency |
+Cassandra is NOT used as a primary transactional storage for orders or product stock.
 
----
+Order creation is a transactional business process requiring atomicity:
 
-# 5.2 Cassandra Data Models
+check stock → decrement stock → create order
 
-## orders_by_user
+If a service reads stale stock data, a critical business risk arises: oversell.
 
-```
-CREATE TABLE orders_by_user (
-    user_id uuid,
-    year_month text,
-    order_ts timeuuid,
-    order_id uuid,
-    status text,
-    total decimal,
-    PRIMARY KEY ((user_id, year_month), order_ts)
-) WITH CLUSTERING ORDER BY (order_ts DESC);
-```
+Cassandra:
+- does not support distributed transactions;
+- allows eventual consistency;
+- does not guarantee reading the latest state.
+
+Therefore, orders and product_stock cannot be the source of truth in Cassandra.
 
 ---
 
-## carts
+## 5.2 What Is Migrated to Cassandra
 
+| Data | Migrated |
+|-----|----------|
+| carts | YES |
+| sessions | YES |
+| order history (read-model) | YES |
+| orders (primary) | NO |
+| product stock (primary) | NO |
+
+The source of truth for orders and stock remains in a transactional database.
+
+---
+
+## 5.3 Cassandra as Read-Model and Temporary Storage
+
+### carts
 ```
 CREATE TABLE carts (
     owner_key text,
     cart_id uuid,
     status text,
-    items map<uuid, int>,
+    items map<uuid,int>,
     updated_at timestamp,
     PRIMARY KEY(owner_key)
 );
 ```
 
----
-
-## sessions
-
+### sessions
 ```
 CREATE TABLE sessions (
     session_id uuid,
@@ -390,74 +391,45 @@ CREATE TABLE sessions (
     created_at timestamp,
     last_seen timestamp,
     PRIMARY KEY(session_id)
-) WITH default_time_to_live=86400;
+) WITH default_time_to_live = 86400;
 ```
 
----
-
-## product_stock_by_geo
-
+### order_history_by_user
 ```
-CREATE TABLE product_stock_by_geo (
-    product_id uuid,
-    geo_zone text,
-    stock int,
-    updated_at timestamp,
-    PRIMARY KEY((product_id, geo_zone))
+CREATE TABLE order_history_by_user (
+    user_id uuid,
+    year_month text,
+    order_ts timeuuid,
+    order_id uuid,
+    status text,
+    total decimal,
+    PRIMARY KEY ((user_id, year_month), order_ts)
 );
 ```
 
 ---
 
-# 5.3 Partition Key Rationale
-
-- Always choose **high cardinality** field  
-- Avoid “hot partitions” like category only  
-- Add bucketing where needed: `(user_id, year_month)`  
-- Keep partitions small and uniform  
-
----
-
-# 5.4 Consistency & Repair Strategy
-
-| Entity | Write CL | Read CL | Repair |
-|--------|----------|---------|--------|
-| carts | LOCAL_ONE | LOCAL_ONE | rare |
-| sessions | LOCAL_ONE | LOCAL_ONE | rare |
-| orders | LOCAL_QUORUM | LOCAL_QUORUM | regular |
-| product_stock | depends on SLA | depends | periodic |
-
-Enable Hinted Handoff for all.
-
----
-
-# 5.5 ASCII Diagram — Cassandra Ring
+## 5.4 Architectural Responsibility Boundaries
 
 ```
-                 +-----------+
-                 |  Node A   |
-                 +-----------+
-                      |
-              -----------------
-              |               |
-        +-----------+   +-----------+
-        |  Node B   |   |  Node C   |
-        +-----------+   +-----------+
-
-Data partitioned by consistent hashing across all nodes
+┌─────────────────────────────┐
+│ Transactional DB            │
+│ orders + product_stock      │  ← source of truth
+└─────────────┬───────────────┘
+              │ domain events
+              ▼
+┌─────────────────────────────┐
+│ Cassandra                   │
+│ carts, sessions, history    │
+└─────────────────────────────┘
 ```
 
 ---
 
 # 6. Summary
 
-This unified architectural report covers:
-
-- MongoDB schema & sharding design  
-- Hot shard detection and stabilization  
-- Read preference policy  
-- Cassandra migration strategy  
-- Data models optimized for horizontal scaling  
-
-The solution ensures high availability, performance, and resilience under peak load conditions.
-
+The proposed architecture:
+- preserves strict consistency in the transactional core;
+- scales read-models and temporary data horizontally;
+- eliminates oversell risk;
+- applies Cassandra correctly and safely without violating business invariants.

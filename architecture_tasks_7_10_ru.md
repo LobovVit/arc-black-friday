@@ -283,34 +283,42 @@ MongoClient(uri, readPreference="primary")
 
 ---
 
-# 5. Задание 10 — Миграция в Cassandra
+# 5. Задание 10 — Миграция на Cassandra: корректные границы применения
 
-## 5.1 Какие данные переносить
+## 5.1 Ключевая архитектурная позиция
 
-| Данные | Переносить? | Причина |
-|--------|-------------|----------|
-| carts | Да | высокая нагрузка, TTL |
-| sessions | Да | огромный поток данных |
-| order history | Да | append‑only |
-| product stock | Да/Опционально | частые обновления |
-| payments | Нет | требуется строгая консистентность |
+> **Cassandra не используется как primary transactional storage для заказов и остатков товаров.**
+
+Создание заказа является транзакционным бизнес-процессом и требует атомарности:
+
+```
+проверка актуальных остатков → списание остатков → создание заказа
+```
+
+Если сервис читает устаревшее состояние остатков, возникает критический риск **oversell** — продажа отсутствующего товара.
+
+Cassandra:
+- не поддерживает распределённые транзакции;
+- допускает eventual consistency;
+- не гарантирует чтение последнего состояния данных.
 
 ---
 
-## 5.2 Модели данных Cassandra
+## 5.2 Что переносится в Cassandra
 
-### orders_by_user
-```
-CREATE TABLE orders_by_user (
-    user_id uuid,
-    year_month text,
-    order_ts timeuuid,
-    order_id uuid,
-    status text,
-    total decimal,
-    PRIMARY KEY ((user_id, year_month), order_ts)
-) WITH CLUSTERING ORDER BY (order_ts DESC);
-```
+| Данные | Перенос |
+|------|---------|
+| carts | ✅ |
+| sessions | ✅ |
+| история заказов (read-model) | ✅ |
+| заказы (primary) | ❌ |
+| остатки (primary) | ❌ |
+
+Источник истины для заказов и остатков остаётся в **транзакционной БД**.
+
+---
+
+## 5.3 Cassandra как read-model и storage временных данных
 
 ### carts
 ```
@@ -332,72 +340,45 @@ CREATE TABLE sessions (
     created_at timestamp,
     last_seen timestamp,
     PRIMARY KEY(session_id)
-) WITH default_time_to_live=86400;
+) WITH default_time_to_live = 86400;
 ```
 
-### product_stock_by_geo
+### order_history_by_user
 ```
-CREATE TABLE product_stock_by_geo (
-    product_id uuid,
-    geo_zone text,
-    stock int,
-    updated_at timestamp,
-    PRIMARY KEY((product_id, geo_zone))
+CREATE TABLE order_history_by_user (
+    user_id uuid,
+    year_month text,
+    order_ts timeuuid,
+    order_id uuid,
+    status text,
+    total decimal,
+    PRIMARY KEY ((user_id, year_month), order_ts)
 );
 ```
 
 ---
 
-## 5.3 Выбор partition‑ключей
-
-- Максимальная кардинальность → равномерность.  
-- Избегать широких партиций.  
-- Использовать bucketing (`year_month`).  
-- owner_key → идеальный ключ для carts.  
-
----
-
-## 5.4 Стратегии согласованности
-
-| Сущность | Write CL | Read CL | Repair |
-|----------|----------|---------|--------|
-| carts | LOCAL_ONE | LOCAL_ONE | редко |
-| sessions | LOCAL_ONE | LOCAL_ONE | редко |
-| orders | LOCAL_QUORUM | LOCAL_QUORUM | регулярно |
-| product_stock | зависит от SLA | зависит | периодически |
-
-Hinted Handoff → включён.
-
----
-
-## 5.5 ASCII‑диаграмма Cassandra Ring
+## 5.4 Архитектурные границы ответственности
 
 ```
-                 +-----------+
-                 |  Node A   |
-                 +-----------+
-                      |
-              -----------------
-              |               |
-        +-----------+   +-----------+
-        |  Node B   |   |  Node C   |
-        +-----------+   +-----------+
-
-Кольцевое распределение данных по hash‑пространству
+┌─────────────────────────────┐
+│ Transactional DB            │
+│ orders + product_stock      │  ← source of truth
+└─────────────┬───────────────┘
+              │ domain events
+              ▼
+┌─────────────────────────────┐
+│ Cassandra                   │
+│ carts, sessions, history    │
+└─────────────────────────────┘
 ```
 
 ---
 
 # 6. Итоговое резюме
 
-Документ описывает:
-
-- архитектуру MongoDB для коллекций products, orders, carts,  
-- выбор shard‑ключей и предотвращение hotspots,  
-- метрики мониторинга и действия по устранению дисбаланса,  
-- правила чтения с реплик, SLA по лагу,  
-- модели Cassandra, partition‑ключи, стратегии согласованности,  
-- рекомендации по миграции высоконагруженных доменов.
-
-Решение обеспечивает устойчивость, скорость и горизонтальное масштабирование при экстремальной нагрузке.
-
+Архитектура обеспечивает:
+- строгую консистентность в транзакционном контуре;
+- масштабируемость и отказоустойчивость read-моделей;
+- отсутствие риска oversell;
+- корректное применение Cassandra без нарушения бизнес-инвариантов.
