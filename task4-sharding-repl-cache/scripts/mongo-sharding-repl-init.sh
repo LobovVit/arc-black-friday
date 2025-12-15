@@ -1,137 +1,128 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== Инициализация репликации и шардинга MongoDB (sharding-repl-cache) ==="
+########################################
+# Helpers
+########################################
+
+log() {
+  echo "[$(date '+%H:%M:%S')] $1"
+}
+
+wait_for_mongod() {
+  local service=$1
+  local port=$2
+  until docker compose exec -T "$service" mongosh --host localhost --port "$port" --quiet --eval 'db.runCommand({ ping: 1 })' >/dev/null 2>&1
+  do
+    log "⏳ Waiting for mongod on $service:$port..."
+    sleep 2
+  done
+  log "✅ mongod ready on $service:$port"
+}
+
+wait_for_mongos() {
+  until docker compose exec -T mongos mongosh --host localhost --port 27017 --quiet --eval 'sh.status()' >/dev/null 2>&1
+  do
+    log "⏳ Waiting for mongos to accept sh.status()..."
+    sleep 2
+  done
+  log "✅ mongos is ready"
+}
+
+rs_initiated() {
+  local service=$1
+  local port=$2
+
+  docker compose exec -T "$service" mongosh \
+    --host localhost \
+    --port "$port" \
+    --quiet \
+    --eval 'rs.status().ok' >/dev/null 2>&1
+}
 
 ########################################
-# 1. Инициализация configReplSet
+# Config replica set
 ########################################
-echo "-> Проверяем / инициализируем configReplSet на configsvr1..."
 
-docker compose exec -T configsvr1 mongosh --port 27019 --quiet <<'EOF'
-let status;
+log "=== Config Replica Set ==="
+wait_for_mongod configsvr1 27019
+
+if rs_initiated configsvr1 27019; then
+  log "configReplSet already initialized"
+else
+  log "Initializing configReplSet"
+  docker compose exec -T configsvr1 mongosh --host localhost --port 27019 --quiet <<'EOF'
+rs.initiate({
+  _id: "configReplSet",
+  configsvr: true,
+  members: [
+    { _id: 0, host: "configsvr1:27019" },
+    { _id: 1, host: "configsvr2:27019" },
+    { _id: 2, host: "configsvr3:27019" }
+  ]
+})
+EOF
+fi
+
+########################################
+# Shard 1 replica set
+########################################
+
+log "=== Shard1 Replica Set ==="
+wait_for_mongod shard1-1 27018
+
+if rs_initiated shard1-1 27018; then
+  log "shard1ReplSet already initialized"
+else
+  docker compose exec -T shard1-1 mongosh --host localhost --port 27018 --quiet <<'EOF'
+rs.initiate({
+  _id: "shard1ReplSet",
+  members: [
+    { _id: 0, host: "shard1-1:27018" },
+    { _id: 1, host: "shard1-2:27018" },
+    { _id: 2, host: "shard1-3:27018" }
+  ]
+})
+EOF
+fi
+
+########################################
+# Shard 2 replica set
+########################################
+
+log "=== Shard2 Replica Set ==="
+wait_for_mongod shard2-1 27018
+
+if rs_initiated shard2-1 27018; then
+  log "shard2ReplSet already initialized"
+else
+  docker compose exec -T shard2-1 mongosh --host localhost --port 27018 --quiet <<'EOF'
+rs.initiate({
+  _id: "shard2ReplSet",
+  members: [
+    { _id: 0, host: "shard2-1:27018" },
+    { _id: 1, host: "shard2-2:27018" },
+    { _id: 2, host: "shard2-3:27018" }
+  ]
+})
+EOF
+fi
+
+########################################
+# Mongos + add shards
+########################################
+
+log "=== Mongos ==="
+wait_for_mongos
+
+docker compose exec -T mongos mongosh --host localhost --port 27017 --quiet <<'EOF'
 try {
-  status = rs.status();
-} catch (e) {
-  status = null;
-}
+  sh.addShard("shard1ReplSet/shard1-1:27018,shard1-2:27018,shard1-3:27018")
+} catch (e) { print("shard1 already added") }
 
-if (!status || status.ok !== 1) {
-  print("configReplSet: ещё не инициализирован, выполняем rs.initiate()...");
-  rs.initiate({
-    _id: "configReplSet",
-    configsvr: true,
-    members: [
-      { _id: 0, host: "configsvr1:27019" },
-      { _id: 1, host: "configsvr2:27019" },
-      { _id: 2, host: "configsvr3:27019" }
-    ]
-  });
-} else {
-  print("configReplSet: уже инициализирован, пропускаем.");
-}
-EOF
-
-########################################
-# 2. Инициализация shard1ReplSet
-########################################
-echo "-> Проверяем / инициализируем shard1ReplSet на shard1-1..."
-
-docker compose exec -T shard1-1 mongosh --port 27018 --quiet <<'EOF'
-let status;
 try {
-  status = rs.status();
-} catch (e) {
-  status = null;
-}
-
-if (!status || status.ok !== 1) {
-  print("shard1ReplSet: ещё не инициализирован, выполняем rs.initiate()...");
-  rs.initiate({
-    _id: "shard1ReplSet",
-    members: [
-      { _id: 0, host: "shard1-1:27018" },
-      { _id: 1, host: "shard1-2:27018" },
-      { _id: 2, host: "shard1-3:27018" }
-    ]
-  });
-} else {
-  print("shard1ReplSet: уже инициализирован, пропускаем.");
-}
+  sh.addShard("shard2ReplSet/shard2-1:27018,shard2-2:27018,shard2-3:27018")
+} catch (e) { print("shard2 already added") }
 EOF
 
-########################################
-# 3. Инициализация shard2ReplSet
-########################################
-echo "-> Проверяем / инициализируем shard2ReplSet на shard2-1..."
-
-docker compose exec -T shard2-1 mongosh --port 27018 --quiet <<'EOF'
-let status;
-try {
-  status = rs.status();
-} catch (e) {
-  status = null;
-}
-
-if (!status || status.ok !== 1) {
-  print("shard2ReplSet: ещё не инициализирован, выполняем rs.initiate()...");
-  rs.initiate({
-    _id: "shard2ReplSet",
-    members: [
-      { _id: 0, host: "shard2-1:27018" },
-      { _id: 1, host: "shard2-2:27018" },
-      { _id: 2, host: "shard2-3:27018" }
-    ]
-  });
-} else {
-  print("shard2ReplSet: уже инициализирован, пропускаем.");
-}
-EOF
-
-########################################
-# 4. Регистрация шардов и шардирование БД / коллекции
-########################################
-echo "-> Настраиваем шардирование через mongos..."
-
-docker compose exec -T mongos mongosh --port 27017 --quiet <<'EOF'
-const cfg = db.getSiblingDB("config");
-
-// 4.1. Добавляем shard1ReplSet при необходимости
-if (cfg.shards.find({ _id: "shard1ReplSet" }).count() === 0) {
-  print("Добавляем шард shard1ReplSet...");
-  sh.addShard("shard1ReplSet/shard1-1:27018,shard1-2:27018,shard1-3:27018");
-} else {
-  print("Шард shard1ReplSet уже добавлен, пропускаем.");
-}
-
-// 4.2. Добавляем shard2ReplSet при необходимости
-if (cfg.shards.find({ _id: "shard2ReplSet" }).count() === 0) {
-  print("Добавляем шард shard2ReplSet...");
-  sh.addShard("shard2ReplSet/shard2-1:27018,shard2-2:27018,shard2-3:27018");
-} else {
-  print("Шард shard2ReplSet уже добавлен, пропускаем.");
-}
-
-// 4.3. Включаем шардинг для БД somedb
-const dbCfg = cfg.databases.findOne({ _id: "somedb" });
-
-if (!dbCfg || !dbCfg.partitioned) {
-  print("Включаем шардинг для БД somedb...");
-  sh.enableSharding("somedb");
-} else {
-  print("Шардинг для БД somedb уже включён, пропускаем.");
-}
-
-// 4.4. Шардируем коллекцию somedb.helloDoc, если ещё не зашардирована
-if (cfg.collections.find({ _id: "somedb.helloDoc" }).count() === 0) {
-  print("Шардируем коллекцию somedb.helloDoc по _id (hashed)...");
-  sh.shardCollection("somedb.helloDoc", { _id: "hashed" });
-} else {
-  print("Коллекция somedb.helloDoc уже зашардирована, пропускаем.");
-}
-
-print("Краткий статус шардирования:");
-sh.status();
-EOF
-
-echo "=== Инициализация репликации и шардинга завершена ==="
+log "=== MongoDB sharding + replication initialized ==="
