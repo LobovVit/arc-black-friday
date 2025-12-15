@@ -95,12 +95,13 @@
 ### `products`
 Shard‑key:
 ```
-{ category: 1, _id: "hashed" }
+{ category: "hashed", _id: 1 }
 ```
 
 **Преимущества:**
-- равномерное распределение внутри категории,
-- отсутствие горячих шардов по популярным категориям.
+- Основные запросы каталога фильтруются по `category`.
+- Использование `hashed(category)` позволяет `mongos` **таргетировать запросы по категории** и избежать scatter‑gather по всем шардам.
+- Второй компонент `_id` обеспечивает равномерное распределение документов внутри категории.
 
 ---
 
@@ -132,7 +133,7 @@ Shard‑key:
 ## 2.3 Примеры команд MongoDB
 
 ```
-sh.shardCollection("shop.products", { category: 1, _id: "hashed" });
+sh.shardCollection("shop.products", { category: "hashed", _id: 1 })
 sh.shardCollection("shop.orders", { user_id: 1, created_at: 1 });
 sh.shardCollection("shop.carts", { owner_key: "hashed" });
 ```

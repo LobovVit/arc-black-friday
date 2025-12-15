@@ -103,14 +103,14 @@ The document uses ASCII diagrams for clarity and contains full rationale, exampl
 
 **Shard key:**
 ```
-{ category: 1, _id: "hashed" }
+{ category: "hashed", _id: 1 }
 ```
 
 **Rationale:**
 
-- category distributes queries by filtering usage  
-- _id hashed ensures even distribution inside each category  
-- prevents hotspots from popular categories (e.g., “electronics”)
+- Most catalog queries are filtered by `category`.
+- Using `hashed(category)` allows `mongos` to route category queries to a limited subset of shards instead of performing scatter‑gather across the entire cluster.
+- `_id` as a second component ensures even distribution of documents inside a single category.
 
 ---
 
@@ -153,7 +153,7 @@ owner_key = "user:<id>" OR "session:<id>"
 ### Products
 
 ```
-sh.shardCollection("shop.products", { category: 1, _id: "hashed" });
+sh.shardCollection("shop.products", { category: "hashed", _id: 1 })
 ```
 
 ### Orders

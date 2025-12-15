@@ -133,21 +133,21 @@ db.orders.createIndex({ status: 1, updated_at: -1 })
 **Shard key:**  
 
 ```
-{ _id: "hashed" }
+{ category: “hashed”, _id: 1 }
 ```
 
 Причины:
 
-- Равномерное распределение,
-- Нет hotspot,
-- Каталог небольшой, scatter‑gather для поиска по категории допустим.
+- Основные запросы каталога фильтруются по `category`.
+- Использование `hashed(category)` позволяет `mongos` таргетировать запросы по категории и избежать scatter-gather по всем шардам.
+- Второй компонент `_id` обеспечивает равномерное распределение документов внутри одной категории.
 
 ### 3.5. Команды MongoDB
 
 ```
 sh.shardCollection(
   "mobile_store.products",
-  { _id: "hashed" }
+  { category: “hashed”, _id: 1 }
 )
 
 db.products.createIndex({ category: 1, price: 1 })
