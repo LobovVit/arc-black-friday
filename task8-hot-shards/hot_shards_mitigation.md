@@ -136,11 +136,7 @@ db.setProfilingLevel(1, { slowms: 50 })
 Рекомендуемый ключ:
 
 ```
-{ category: 1, _id: "hashed" }
-```
-или
-```
-{ _id: "hashed" }
+{ category: “hashed”, _id: 1 }
 ```
 
 #### Пример:
@@ -148,15 +144,14 @@ db.setProfilingLevel(1, { slowms: 50 })
 ```js
 db.adminCommand({
   reshardCollection: "mobile_store.products",
-  key: { category: 1, _id: "hashed" }
+  key: { category: "hashed", _id: 1 }
 })
 ```
 
 Преимущества:
 
 - равномерное распределение внутри категории,
-- устранение hotspot,
-- распределение запросов по всем шардам.
+- устранение hotspot
 
 ---
 
@@ -232,7 +227,7 @@ sh.addShard("shard03/host1:27018,host2:27018,host3:27018")
 
 ```
 { _id: "hashed" }
-{ category: 1, _id: "hashed" }
+{ category: "hashed", _id: 1 }
 ```
 
 ### 4.2. Регулярный аудит шардов
@@ -273,7 +268,7 @@ max(doc_count) / min(doc_count) > 2  →  ALARM
 
 1. Включить профайлер на время анализа.
 2. Выявить шард с наибольшим количеством документов категории.
-3. Выполнить `reshardCollection` на ключ `{ category: 1, _id: "hashed" }`.
+3. Выполнить `reshardCollection` на ключ `{ category: "hashed", _id: 1 }`.
 4. Включить Redis-кэш и CDN.
 
 ---

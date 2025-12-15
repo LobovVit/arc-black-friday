@@ -236,7 +236,7 @@ db.products.aggregate([{ $collStats: { storageStats: {} } }])
 ```
 db.adminCommand({
   reshardCollection: "shop.products",
-  key: { category: 1, _id: "hashed" }
+  key: { category: "hashed", _id: 1 }
 });
 ```
 
