@@ -1,35 +1,62 @@
-# pymongo-api
+## Задание 1. Планирование
+- [Sharding](./task1-single/task1_solutions-1-Sharding.jpg)
+- [Sharding-Replication](./task1-single/task1_solutions-2-Sharding-Replication.jpg)
+- [Sharding-Replication-Redis](./task1-single/task1_solutions-3-Sharding-Replication-Redis.jpg)
 
-## Как запустить
+## Задание 2. Шардирование
+- [ReadMe](./task2-mongo-sharding/README.md)
+- Короткая альтернатива:
+  - в каталог задания:
+  ```cd task2-mongo-sharding```
+  - запуск:
+  ```docker compose up -d```
+  - Инициализация (идемпотентная операция): 
+  ```./scripts/mongo-sharding-init.sh```
+  - Наполненение:
+    ```./scripts/mongo-init.sh```
 
-Запускаем mongodb и приложение
+## Задание 3. Репликация
+- [ReadMe](./task3-mongo-sharding-repl/README.md)
+- Короткая альтернатива:
+  - в каталог задания:
+    ```cd task3-mongo-sharding-repl```
+  - запуск:
+    ```docker compose up -d```
+  - Инициализация (идемпотентная операция):
+    ```./scripts/mongo-sharding-repl-init.sh```
+  - Наполненение:
+    ```./scripts/mongo-init.sh```
 
-```shell
-docker compose up -d
-```
+## Задание 4. Кеширование
+- [ReadMe](./task4-sharding-repl-cache/README.md)
+- Короткая альтернатива:
+  - в каталог задания:
+    ```cd task4-sharding-repl-cache```
+  - запуск:
+    ```docker compose up -d```
+  - Инициализация (идемпотентная операция):
+    ```./scripts/mongo-sharding-repl-init.sh```
+  - Наполненение:
+    ```./scripts/mongo-init.sh```
+  - Проверка (см время отклика первого и последующих):
+```time curl -s http://localhost:8080/helloDoc/users > /dev/null```
 
-Заполняем mongodb данными
+## Задание 5. Service Discovery и балансировка с API Gateway
+- [Sharding-Replication-Redis](./task5-Service-Discovery/task5_scaling_gateway_consul.jpg)
 
-```shell
-./scripts/mongo-init.sh
-```
+## Задание 6. CDN
+- [CDN](./task6-CDN/task6_CDN.jpg)
 
-## Как проверить
+## Задание 7. Проектирование схем коллекций для шардирования данных
+- [sharding_collections_design](./task7-sharding/sharding_collections_design.md)
 
-### Если вы запускаете проект на локальной машине
+## Задание 8. Выявление и устранение «горячих» шардов
+- [hot_shards_mitigation](./task8-hot-shards/hot_shards_mitigation.md)
 
-Откройте в браузере http://localhost:8080
+## Задание 9. Настройка чтения с реплик и консистентность
+- [read_pref_consistency](./task9-read-pref/read_pref_consistency.md)
 
-### Если вы запускаете проект на предоставленной виртуальной машине
+## Задание 10. Миграция на Cassandra: модель данных, стратегии репликации и шардирования
+- [cassandra_migration_design](./task10-cassandra_migration/cassandra_migration_design.md)
 
-Узнать белый ip виртуальной машины
-
-```shell
-curl --silent http://ifconfig.me
-```
-
-Откройте в браузере http://<ip виртуальной машины>:8080
-
-## Доступные эндпоинты
-
-Список доступных эндпоинтов, swagger http://<ip виртуальной машины>:8080/docs
+# Объединенное 7-10 [consolidated_architecture_7_10](./architecture_tasks_7_10_ru.md)
